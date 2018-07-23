@@ -1,0 +1,181 @@
+# Name the components on this agent
+bi.sources = ws
+bi.sinks = k1
+bi.channels = mem
+
+#Describe/configure the source
+bi.sources.ws.type = exec
+bi.sources.ws.bind = localhost
+bi.sources.ws.port = 44444
+
+#Describe the sink
+bi.sink.k1.type = logger
+
+#Use a channel which buffers events in memory
+bi.channels.mem.type = memory
+bi.channels.mem.capacity = 1000
+bi.channels.mem.transactionCapacity = 100
+
+#Bind the source and sink to the channel
+bi.sources.r1.channels = mem	
+bi.sinks.k1.channel = mem
+
+
+//Spark Streaming  (Eg. NO 1)
+import org.apache.spark._
+import org.apache.spark.streaming._
+import org.apache.spark.streaming.StreamingContext._ // not necessary since Spark 1.3
+
+// Create a local StreamingContext with two working thread and batch interval of 1 second.
+// The master requires 2 cores to prevent from a starvation scenario.
+
+val conf = new SparkConf().setMaster("local[2]").setAppName("NetworkWordCount")
+val ssc = new StreamingContext(conf, Seconds(1))
+
+// Create a DStream that will connect to hostname:port, like localhost:9999
+val lines = ssc.socketTextStream("localhost", 9999)
+
+// Split each line into words
+val words = lines.flatMap(_.split(" "))
+
+import org.apache.spark.streaming.StreamingContext._ // not necessary since Spark 1.3
+
+// Count each word in each batch
+val pairs = words.map(word => (word, 1))
+val wordCounts = pairs.reduceByKey(_ + _)
+
+// Print the first ten elements of each RDD generated in this DStream to the console
+wordCounts.print()
+
+ssc.start()             // Start the computation
+ssc.awaitTermination()  // Wait for the computation to terminate
+
+$ nc -lk 9999 //run in a different terminal
+$ ./bin/run-example streaming.NetworkWordCount localhost 9999 //run in a different terminal
+
+//Spark streaming example 2
+import org.apache.spark._
+import org.apache.spark.streaming._
+import org.apache.spark.streaming.StreamingContext._ 
+
+val conf = new SparkConf().setMaster("local[2]").setAppName("NetworkWordCount")
+val ssc = new StreamingContext(conf, Seconds(30))
+val messages = ssc.socketTextStream("localhost", 9999)
+val departmentmessages = messages.filter(msg => {
+   val endPoint = msg.split(" ")(6)
+   endPoint.split("/")(1) == "department"
+   })
+val departmentmesssages = departmentmessages.map(rec => {
+	val endPoint = rec.split(" ")(6)
+	(endPoint.split("/")(2), 1)
+})
+val departmenttraffic = departmentmesssages.reduceByKey(_ + _)
+departmenttraffic.saveAsTextFiles ("/tmp/streaming/spark1")
+ssc.start()             // Start the computation
+ssc.awaitTermination()  // Wait for the computation to terminate
+
+tail_logs.sh|nc -lk 9999 //run in a different terminal
+$ /bin/run-example streaming.NetworkWordCount localhost 9999 //run in a different terminal
+
+
+ln -s /opt/gen_logs/start_logs.sh /usr/bin/start_logs.sh
+  set -0 vi 
+  ln -s /opt/gen_logs/stop_logs.sh /usr/bin/stop_logs.sh
+  ln -s /opt/gen_logs/tail_logs.sh /usr/bin/tail_logs.sh
+
+  bin/flume-ng agent –conf/ -f conf/web_log -n bi
+
+ // KAFKA
+ bin/zookeeper-server-start.sh config/zookeeper.properties
+ bin/kafka-server-start.sh config/server.properties
+ bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic sunnydemo1
+ bin/kafka-topics.sh --list --zookeeper localhost:2181
+ bin/kafka-console-producer.sh --broker-list localhost:9092 --topic sunnydemo1
+ bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic sunnydemo1 --from-beginning
+
+ //SparkStreaming
+ import org.apache.spark.SparkConf
+ import org.apache.spark.Sparkstreaming
+ val conf conf = new SparkConf().setAPPName("Streaming word count").setMaster("local")
+ val ssc = new streamingContext(conf, Seconds(10))
+ val lines = 
+
+
+ //flume agent with netcat	
+# Name the components on this agent
+bi.sources = ws
+bi.sinks = hd
+bi.channels = mem
+
+#Describe/configure the source
+bi.sources.ws.type = exec
+bi.sources.ws.command = tail -F /opt/gen_logs/logs/access.log
+
+#Describe the sink
+bi.sinks.hd.type = hdfs
+bi.sinks.hd.hdfs.path = hdfs://localhost:9000/tmp/web_logs
+
+bi.sinks.hd.hdfs.fileprefix = flumedemo
+bi.sinks.hd.hdfs.filesuffix = .txt
+bi.sinks.hd.hdfs.rollinterval = 120
+bi.sinks.hd.hdfs.rollsize = 1048576
+bi.sinks.hd.hdfs.rollcount = 100
+bi.sinks.hd.hdfs.filetype = Datastream
+
+#Use a channel which buffers events in memory
+bi.channels.mem.type = memory
+bi.channels.mem.capacity = 1000
+bi.channels.mem.transactionCapacity = 100
+
+#Bind the source and sink to the channel
+bi.sources.ws.channels = mem
+bi.sinks.hd.channel = mem
+
+//FLUME AGENT WITH SPARKSTREAMING	
+# Name the components on this agent
+bi.sources = ws
+bi.sinks = hd spark
+bi.channels = hdmem sparkmem
+
+#Describe/configure the source
+bi.sources.ws.type = exec
+bi.sources.ws.command = tail -F /opt/gen_logs/logs/access.log
+
+#Describe the sink
+bi.sinks.hd.type = hdfs
+bi.sinks.hd.hdfs.path = hdfs://localhost:9000/tmp/web_logs
+
+bi.sinks.hd.hdfs.fileprefix = flumedemo
+bi.sinks.hd.hdfs.filesuffix = .txt
+bi.sinks.hd.hdfs.rollinterval = 120
+bi.sinks.hd.hdfs.rollsize = 1048576
+bi.sinks.hd.hdfs.rollcount = 100
+bi.sinks.hd.hdfs.filetype = Datastream
+
+bi.sinks.spark.type = org.apache.spark.streaming.flume.sink.SparkSink
+bi.sinks.spark.hostname = localhost
+bi.sinks.spark.port = 4444s
+
+#Use a channel which buffers events in memory
+bi.channels.hdmem.type = memory
+bi.channels.hdmem.capacity = 1000
+bi.channels.hdmem.transactionCapacity = 100
+
+bi.channels.sparkmem.type = memory
+bi.channels.sparkmem.capacity = 1000
+bi.channels.sparkmem.transactionCapacity = 100
+
+#Bind the source and sink to the channel
+bi.sources.ws.channels = hdmem sparkmem
+bi.sinks.hd.channel = hdmem
+bi.sinks.spark.channel = sparkmem
+
+
+/// NEW
+
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.SparkSession
+
+val spark = SparkSession.builder.appName("StructuredNetworkWordCount").getOrCreate()
+  
+import spark.implicits._ 
