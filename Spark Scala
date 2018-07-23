@@ -1,0 +1,695 @@
+http://192.168.130.25:4040
+--num-executor 1 \
+--executor-memory 512m
+
+//reading data from a local file
+val productsraw = scala.io.Source.fromFile("/home/hduser/data/retail_db/products/part-00000").getLines.toList
+
+//converting the data into RDD
+val productsRDD = sc.parallelize(productsraw)
+
+DAG - Directed Acyclic Graph
+
+ str.split(",")(1).substring(0, 10).replace("-", "").toInt
+
+  val ordersmap = orders.map((str: String) => {
+  str.split(",")(1).substring(0, 10).replace("-", "").toInt
+  })
+
+val ordersmaped = orders.map(order => {
+  val o = order.split(",")
+  (o(0).toInt, o(1).substring(0, 10).replace("-", "").toInt)
+})
+map is for row filtering
+while filtering api is for column filtering
+
+// get all distinct order observation
+orders.map(order => order.split(",")(3)).distinct.collect.foreach(println)
+
+val ordersddd = orders.filter(order => {
+    val o = order.split(",")
+	(o(3) == "COMPLETE" || o(3) == "CLOSED") && (o(1).contains("2013-09"))
+})
+
+val ordersrdd = orders.filter(order => {
+	order.split(",")(3) == "COMPLETE" | order.split(",")(3) == "CLOSED"
+})
+
+//join 2 data sets
+val orders = sc.textFile("/user/data/retail_db/orders/part-00000")
+val orderitems = sc.textFile("/user/data/retail_db/order_items/part-00000")
+
+val ordersmap = orders.map(order => {
+     | (order.split(",")(0).toInt, order.split(",")(1).substring(0, 10))
+     | })
+
+val orderitemsmap = orderitems.map(orderitem => {
+     | (orderitem.split(",")(1).toInt, orderitem.split(",")(4).toFloat)
+     | })
+
+val ordersjoin = ordersmap.join(orderitemsmap)
+
+//leftouterjoint
+val ordersmaps = orders.map(order => {
+     | (order.split(",")(0).toInt, order)
+     | })
+
+val orderitemsmaps = orderitems.map(orderitem => {
+     | (orderitem.split(",")(1).toInt, orderitem)
+     | })
+
+ val ordersleftouterjoin = ordersmap.leftOuterJoin(orderitemsmap)
+
+val ordersleftouterjoinfilter = ordersleftouterjoin.filter(order => order._2._2 == None) 
+ 
+val orderswithnoorderitem = ordersleftouterjoinfilter.map(order => order._2._1)
+
+//AGGREGATION ------using global actions
+groupbykey.......does not use a combiner function
+reducebykey
+aggregatebykey
+
+val orders = sc.textFile("/user/data/retail_db/orders/part-00000")
+orders.map(order => (order.split(",")(3), "")).countByKey.foreach(println)
+val orderitems = sc.textFile("/user/data/retail_db/order_items/part-00000")
+val orderitemrenue = orderitems.map(oi => oi.split(",")(4).toFloat)
+
+orderitemrenue.reduceByKey((total, revenue) => total + revenue) 
+
+val orderitemmaxrevenue = orderitemrenue.reduceByKey((max, revenue) => {
+  if(max < revenue) revenue else max
+})
+
+//AGGREGATION ------using groupbykey
+val orderitemsmap = orderitems.map(oi => (oi.split(",")(1).toInt, oi.split(",")(4).toFloat))
+val orderitemsgbk = orderitemsmap.groupByKey
+
+//get revenue per order_id 
+orderitemsgbk.map(rec => (rec._1, rec._2.toList.sum)).take(10).foreach(println)
+
+//get data in descending order by order_item_subtotal for each order_id
+val ordersortbyrevenue = orderitemsgbk.flatMap(rec => {
+   rec._2.toList.sortBy(o => -o).map(k => (rec._1, k))
+})
+
+//aggregation - reduceBykey
+val orderitems = sc.textFile("/user/data/retail_db/order_items/part-00000")
+val orderitemsmap = orderitems.map(oi => (oi.split(",")(1).toInt, oi.split(",")(4).toFloat))
+
+val revenueperorderid = orderitemsmap.reduceByKey((total, revenue) => total + revenue)
+val minrevenueperorderid = orderitemsmap.reduceByKey((min, revenue) => if(min > revenue) revenue else min)
+
+//aggregation----aggregatebykey
+val orderitems = sc.textFile("/user/data/retail_db/order_items/part-00000")
+val orderitemsmap = orderitems.map(oi => (oi.split(",")(1).toInt, oi.split(",")(4).toFloat))
+
+val revenueandmaxperpreoductid = orderitemsmap.aggregateByKey((0.0f, 0.0f))(
+   (inter, subtotal) => (inter._1 + subtotal, if(subtotal > inter._2) subtotal else inter._2),
+   (total, inter) => (total._1 + inter._1, if(total._2 > inter._2) total._2 else inter._2)
+)
+
+revenueandmaxperpreoductid.sortByKey().take(10).foreach(println)
+
+//Sorting---sortbykey
+val products = sc.textFile("/user/data/retail_db/products/part-00000")
+val productsmap = products.map(product => (product.split(",")(1).toInt, product))
+val productsortbykey = productsmap.sortByKey()  #add (false) to sort in descending order
+
+val productsmap1 = products.filter(product => product.split(",")(4) !="").
+  map(product => ((product.split(",")(1).toInt, product.split(",")(4).toFloat), product))
+
+ val productsortbykey = productsmap1.sortByKey(false)
+
+ //ranking--- global
+ val products = sc.textFile("/user/data/retail_db/products/part-00000")
+val productsmap = products.map(product => (product.split(",")(1).toInt, product))
+
+products.filter(product => product.split(",")(4) != "").
+takeordered(10)(ordering[Float].reverse.on(product => product.split(",")(4).toFloat)).foreach(println)
+
+//ranking -- get top N priced products with in each product category 
+val products = sc.textFile("/user/data/retail_db/products/part-00000")
+val productsmap = products.map(product => (product.split(",")(1).toInt, product))
+
+val productsgroupbycategory = productsmap.groupByKey
+val productsiterable = productsgroupbycategory.first._2
+val productsprices = productsiterable.map(p => p.split(",")(4).toFloat).toSet
+val topNprice = productsprices.toList.sortBy(p => -p).take(5)
+val mintopNprices = topNprice.min
+
+//get all the products in descending order by price
+val productsorted = productsiterable.toList.sortBy(p => -p.split(",")(4).toFloat)
+
+val topNpricedprodcuts = productsorted.takeWhile(product => product.split(",")(4.toFloat >= mintopNprices)
+
+//Set Operations
+val orders = sc.textFile("/user/data/retail_db/orders/part-00000")
+val customers_201308 = orders.filter(order => order.split(",")(1).contains("2013-08")).
+    map(order => order.split(",")(2).toInt)
+
+val customers_201309 = orders.filter(order => order.split(",")(1).contains("2013-09")).
+    map(order => order.split(",")(2).toInt)
+
+// get all the customers who place orders in 2013 August and 2013 September
+val customers_201308_and_201309 = customers_201308.intersection(customers_201309)
+
+//get all unique customers who place orders in 2013 August and 2013 September
+
+val customers_201308_union_201309 = customers_201308.union(customers_201309)
+
+// Get all customers who placed orders in 2013 August but not in 2013 September
+val customers_201308_minus_201309 = customers_201308.map(c => (c, 1)).
+  leftOuterJoin(customers_201309.map(c => (c, 1))).
+  filter(rec => rec._2._2 == None).
+  map(rec => rec._1)
+
+//saving RDD back to HDFS 
+val orders = sc.textFile("/user/data/retail_db/orders/part-00000")
+
+val ordercountbystatus = orders.
+  map(order => (order.split(",")(3), 1)).
+  reduceByKey((total, element) => total + element)
+
+ordercountbystatus.saveAsTextFile("/user/val ordercountbystatus") 
+
+//to view the file
+sc.textFile("/user/val ordercountbystatus").take(10).foreach(println)
+
+// to save in a specific format
+ordercountbystatus.
+   map(rec => rec._1 + "\t" + rec._2).saveAsTextFile("/user/val ordercountbystatus")........this function ll collect the status add addition delimiter and rec._2 will count
+
+//save RRd to HDFS Using compress
+ordercountbystatus.saveAsTextFile("/user/ordercountbystatus_snappy", classOf[org.apache.hadoop.io.compress.SnappyCodec]) 
+
+sc.textFile("/user/ordercountbystatus_snappy").collect.foreach(println)
+
+// Save data in different file formats
+val orderdf = sqlContext.read.json("/user/data/retail_db_json/orders")
+orderdf.save("/user/orders_parquet", "parquet")
+sqlContext.load("/user/orders_parquet", "parquet").show
+
+orderdf.write.orc("/user/orders_orc")
+sqlContext.load("/user/orders_orc").show
+
+////SOLUTION TO PROBLEM
+//Reading datasets into spark environment
+
+val orders = sc.textFile("/user/data/retail_db/orders/part-00000")
+val orderitems = sc.textFile("/user/data/retail_db/order_items/part-00000")
+
+//filter for completed or closed orders
+
+orders.map(order => order.split(",")(3)).distinct.collect.foreach(println)....to understand the data
+
+val ordersfilter = orders.filter(order => order.split(",")(3) == "COMPLETE" || order.split(",")(3) == "CLOSED")
+ordersfilter.take(50).foreach(println)
+
+//Convert both filtered orders and order_items to key value pairs
+
+val ordersmap = ordersfilter.map(order => (order.split(",")(0).toInt, order.split(",")(1)))
+
+val orderitemsmap = orderitems.map(oi => (oi.split(",")(1).toInt,(oi.split(",")(2).toInt,oi.split(",")(4).toFloat)))
+orderitems.first
+
+//join the ordersmap and orderitemsmap
+val ordersjoin = ordersmap.join(orderitemsmap)
+
+///(order_id, (order_date, order_item_product_id, order_item_subtotal)
+//get daily revenue per product id
+val  ordersjoinmap  = ordersjoin.map(rec => ((rec._2._1, rec._2._2._1), rec._2._2._2))
+ordersjoinmap.count
+
+//((order_date, order_item_product_id), order_item_subtotal)
+val dailyrevenueperproductid = ordersjoinmap.reduceByKey((revenue, order_item_subtotal) => revenue + order_item_subtotal)
+dailyrevenueperproductid.take(10).foreach(println)
+
+//load products  from local file system and convert into RDD
+val products = scala.io.Source.fromFile("/home/hduser/data/retail_db/products/part-00000").getLines.toList
+
+val productsRDD = sc.parallelize(products)
+productsRDD.take(10).foreach(println)
+productsRDD.count
+
+//join daily revenue perproduct id with products to get daily revenue per product (by name)
+val productsmap = productsRDD.map(product => (product.split(",")(0).toInt, product.split(",")(2)))
+productsmap.take(10).foreach(println)
+productsmap.count
+
+///((order_date, order_product_id), daily_revenue_revenue_per_product_id)
+val dailyrevenueperproductidmap = dailyrevenueperproductid.map(rec => (rec._1._2, (rec._1._1, rec._2)))
+dailyrevenueperproductidmap.take(10).foreach(println)
+
+//join products to dailrevenue per products
+val dailyrevenueperproductjoin = dailyrevenueperproductidmap.join(productsmap)
+dailyrevenueperproductjoin.take(10).foreach(println)
+
+//sort data by date in ascending order
+
+val dailyrevenueperproductsorted = dailyrevenueperproductjoin.map(rec => ((rec._2._1._1, -rec._2._1._2), (rec._2._1._1, rec._2._1._2, rec._2._2))).sortByKey()
+dailyrevenueperproductsorted.take(10).foreach(println)
+
+//get data to desire format
+
+val dailyrevenueperproduct = dailyrevenueperproductsorted.map(rec => rec._2._1 + "," +rec._2._2 + "," + rec._2._3)
+
+dailyrevenueperproduct.take(10).foreach(println)
+
+//saving the files
+dailyrevenueperproduct.saveAsTextFile("/user/sunny/dailyrevenueperproduct")
+
+////creating databases
+
+create database sunny_retail_db_txt;
+use sunny_retail_db_txt
+
+set hive.metastore.warehouse.dir;
+
+dfs -ls /user/hive/warehouse;
+
+create table orders (
+order_id int,
+order_date string,
+order_customer int,
+order_status string
+) row  format delimited fields terminated by ','
+stored as textfile;
+
+load data local inpath '/home/hduser/data/retail_db/orders/part-00000'  into table orders;
+
+create table order_items (
+order_item_id int,
+order_item_order_id int,
+order_item_product_id int,
+order_item_quantity int,
+order_item_subtotal float,
+order_item_product_price float
+) row  format delimited fields terminated by ','
+stored as textfile;
+
+load data local inpath '/home/hduser/data/retail_db/order_items/part-00000'  into table orders;
+
+///storing files in orc format
+create database sunny_retail_db_orc;
+use sunny_retail_db_orc;
+
+create table orders (
+order_id int,
+order_date string,
+order_customer int,
+order_status string
+) stored as orc;
+
+insert into table orders select * from sunny_retail_db_txt.orders;
+
+create table order_items (
+order_item_id int,
+order_item_order_id int,
+order_item_product_id int,
+order_item_quantity int,
+order_item_subtotal float,
+order_item_product_price float
+) stored as orc;
+
+insert into table order_items select * from sunny_retail_db_txt.order_items;
+
+describe formatted orders;
+
+
+sqlContext.sql("use sunny_retail_db_txt")
+
+///Hive----Functions
+select length(order_status) from orders limit 100;
+select trim('hello world');
+select trim('hello world'), length(trim('hello world'));
+select date_format(current_date, 'd');
+select distinct order_status from order;
+select case order_status 
+            when 'CLOSED' then 'No Action'
+            when 'COMPLETE' then 'No Action'
+            end from orders limit 10;
+
+ select order_status,
+        case order_status 
+             when 'CLOSED' then 'No Action'
+             when 'COMPLETE' then 'No Action'
+             when 'ON_HOLD' then 'Pending Action'
+             when 'PAYMENT_Review' then 'Pending Action'
+             when 'PENDING' then 'Pending Action'
+             when 'PROCESSING' then 'Pending Action'
+             when 'PENDING_PAYMENT' then 'Pending Action'
+             else 'Risky'
+             end from orders limit 10;
+
+select concat(substr(order_date, 1, 4), substr(order_date, 6, 2))
+from orders limit 10;
+
+select cast(date_format(order_date, 'YYYYMM') as int) from orders limit 100;
+select o.*, c.* from orders o, customers c
+where o.order_customer = c.customer_id
+limit 10;
+
+create table customers (
+  customer_id int,
+  customer_fname varchar(45),
+  customer_lname varchar(45),
+  customer_email varchar(45),
+  customer_password varchar(45),
+  customer_street varchar(255),
+  customer_city varchar(45),
+  customer_state varchar(45),
+  customer_zipcode varchar(45)
+) row format delimited fields terminated by ','
+  stored as textfile;
+
+load data local inpath '/home/hduser/data/retail_db/customers/part-00000'  into table customers;
+
+select o.*, c.* from orders o join customers c
+where o.order_customer = c.customer_id
+limit 10;
+
+select o.*, c.* from orders o left outer join customers c
+where o.order_customer = c.customer_id
+limit 10;
+
+select * from customers c left outer join orders o
+on o.order_customer = c.customer_id
+where o.order_customer is null;
+
+select order_status, count(1) from orders group by order_status;
+
+select o.order_id, sum(oi.order_item_subtotal) order_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+group by o.order_id;
+
+select o.order_id, o.order_date, o.order_status, sum(oi.order_item_subtotal) order_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')
+group by o.order_id, o.order_date, o.order_status
+having sum(oi.order_item_subtotal) >= 1000;
+
+select o.order_date, sum(oi.order_item_subtotal) daily_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')
+group by o.order_date;
+
+select o.order_date, round(sum(oi.order_item_subtotal)) daily_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')
+group by o.order_date;
+
+
+select o.order_id, o.order_date, o.order_status, round(sum(oi.order_item_subtotal),2) order_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')
+group by o.order_id, o.order_date, o.order_status
+having sum(oi.order_item_subtotal) >= 1000
+order by o.order_date, order_revenue desc;
+
+select o.order_id, o.order_date, o.order_status, round(sum(oi.order_item_subtotal),2) order_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')
+group by o.order_id, o.order_date, o.order_status
+having sum(oi.order_item_subtotal) >= 1000
+distribute by o.order_date sort by o.order_date, order_revenue desc;
+
+//Advance Analytical function in hive
+
+select * from (
+select o.order_id, o.order_date, o.order_status, oi.order_item_subtotal, round(sum(oi.order_item_subtotal) over (partition by o.order_id), 2)order_revenue,
+oi.order_item_subtotal/round(sum(oi.order_item_subtotal) over (partition by o.order_id ), 2) pct_revenue,
+round(avg(oi.order_item_subtotal) over (partition by o.order_id), 2) avg_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')) q
+where order_revenue >= 1000
+order by order_date, order_revenue desc;
+
+//Rank
+select * from (
+select o.order_id, o.order_date, o.order_status, oi.order_item_subtotal, 
+round(sum(oi.order_item_subtotal) over (partition by o.order_id), 2)order_revenue,
+oi.order_item_subtotal/round(sum(oi.order_item_subtotal) over (partition by o.order_id ), 2) pct_revenue,
+round(avg(oi.order_item_subtotal) over (partition by o.order_id), 2) avg_revenue,
+rank() over (partition by o.order_id order by oi.order_item_subtotal desc) rnk_revenue,
+dense_rank() over (partition by o.order_id order by oi.order_item_subtotal desc) dense_rnk_revenue,
+percent_rank() over (partition by o.order_id order by oi.order_item_subtotal desc) pct_rnk_revenue,
+row_number() over (partition by o.order_id order by oi.order_item_subtotal desc) rn_orderby_revenue,
+row_number() over (partition by o.order_id) rn_revenue
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')) q
+where order_revenue >= 1000
+order by order_date, order_revenue desc, rnk_revenue;
+
+//adding the lag and lead function to the query
+select * from (
+select o.order_id, o.order_date, o.order_status, oi.order_item_subtotal, 
+round(sum(oi.order_item_subtotal) over (partition by o.order_id), 2)order_revenue,
+oi.order_item_subtotal/round(sum(oi.order_item_subtotal) over (partition by o.order_id ), 2) pct_revenue,
+round(avg(oi.order_item_subtotal) over (partition by o.order_id), 2) avg_revenue,
+rank() over (partition by o.order_id order by oi.order_item_subtotal desc) rnk_revenue,
+dense_rank() over (partition by o.order_id order by oi.order_item_subtotal desc) dense_rnk_revenue,
+percent_rank() over (partition by o.order_id order by oi.order_item_subtotal desc) pct_rnk_revenue,
+row_number() over (partition by o.order_id order by oi.order_item_subtotal desc) rn_orderby_revenue,
+row_number() over (partition by o.order_id) rn_revenue,
+lead(oi.order_item_subtotal) over (partition by o.order_id order by oi.order_item_subtotal desc) lead_order_item_subtotal,
+lag(oi.order_item_subtotal) over (partition by o.order_id order by oi.order_item_subtotal desc) lag_order_item_subtotal,
+first_value(oi.order_item_subtotal) over (partition by o.order_id order by oi.order_item_subtotal desc) first_order_item_subtotal,
+last_value(oi.order_item_subtotal) over (partition by o.order_id order by oi.order_item_subtotal desc) last_order_item_subtotal
+from orders o join order_items oi
+on o.order_id = oi.order_item_order_id
+where o.order_status in ('COMPLETE', 'CLOSED')) q
+where order_revenue >= 1000
+order by order_date, order_revenue desc, rnk_revenue;
+
+///QUESTION
+
+-> Get daily revenue per product considering completed and closed orders.
+-> Read products data from local file system and dataframe needs to be created.
+-> Join orders and order_items tables.
+-> Filter on order_status.
+-> Data need to be sorted by ascending order by date and then decsending order by revenue computed for each product for each day.
+-> Sort data by order_date in ascending order and then daily revenue per product in descending order.
+-> Use hive and store the output to hive database YOUR_USER_ID_daily_revenue
+-> Get order_date, product_name, daily_revenue_per_product and save into hive table using orc file format.
+
+//SOLUTIONS
+
+val orders = \
+val order_items = sc.textFile("/user/data/retail_db/order_items/part-00000")
+
+val ordersDF = orders.map(order => {
+   (order.split(",")(0).toInt, order.split(",")(1), order.split(",")(2).toInt, order.split(",")(3))
+   }).toDF("order_id", "order_date", "order_customer_id", "order_status")
+
+ordersDF.printSchema
+
+ordersDF.registerTempTable("orders")
+ordersDF.registerTempTable("orders")
+
+-> val productsraw = scala.io.Source.fromFile("/home/hduser/data/retail_db/products/part-00000").getLines.toList
+val productsRDD = sc.parallelize(productsraw)
+val productsdf = productsRDD.map(product => {
+	(product.split(",")(0).toInt, product.split(",")(2))
+}).toDF("product_id", "product_name")
+
+productsdf.registerTempTable("products")
+
+sqlContext.sql("SELECT o.order_date, p.product_name, sum(oi.order_item_subtotal) daily_revenue_per_product " +
+"FROM orders o JOIN order_items oi " +
+"ON o.order_id = oi.order_item_order_id " +
+"JOIN products p ON p.product_id = oi.order_item_product_id " +
+"WHERE o.order_status IN ('COMPLETE', 'CLOSED') " +
+"GROUP BY o.order_date, p.product_name" +
+"ORDER BY 0.order_date, daily_revenue_per_product desc").show
+
+//saving the result
+val daily_revenue_per_product = sqlContext.sql("CREATE DATABASE sunny_daily_renue")
+sqlContext.sql("CREATE TABLE sunny_daily_revenue.daily_revenue " +
+"(order_date string, product_name string, daily_revenue_per_product float) " +
+"STORED AS orc")
+
+sqlContext.sql("SELECT o.order_date, p.product_name, sum(oi.order_item_subtotal) daily_revenue_per_product " +
+"FROM orders o JOIN order_items oi " +
+"ON o.order_id = oi.order_item_order_id " +
+"JOIN products p ON p.product_id = oi.order_item_product_id " +
+"WHERE o.order_status IN ('COMPLETE', 'CLOSED') " +
+"GROUP BY o.order_date, p.product_name" +
+"ORDER BY 0.order_date, daily_revenue_per_product desc")
+
+daily_revenue_per_product.insertInto("sunny_daily_revenue.daily_revenue")
+
+
+select * from customers c left outer join orders o
+on o.order_customer = c.customer_id
+where o.order_customer is null;
+
+select * from customers c join orders o
+on o.order_customer = c.customer_id
+where o.order_customer is null;
+
+solution
+import.scala.io.Source
+val customersraw = Source.fromFile("/home/hduser/data/retail_db/customers/part-00000).getLine.toList
+val customers = sc.parallelize(customersraw)
+
+val ordersraw = Source.fromFile("/home/hduser/data/retail_db/orders/part-00000).getLine.toList
+val orders = sc.parallelize(ordersraw)
+
+val ordersmap = orders.
+  map(order => (order.split(",")(2).toInt, 1))
+
+val customersmap = customers.
+  map(c. => (c.split(",")(0).toInt, (c.split(",")(2), c.split(",")(1))))
+
+val customersleftouterjoinorders = customersmap.leftOuterJoin(ordersmap)
+val inactivecustomerssorted = customersleftoutersjoinorders.
+  filter(t => t._2.2 == None).
+  map(rec => rec._2).
+  sortByKey()
+
+ inactivecustomerssorted.
+   map(rec => rec._1._1 + "," + rec._1._2).
+   saveAsTextFile("/user/hduser/inactive_customer")
+
+
+import.scala.io.Source
+val customersraw = Source.fromFile("/home/hduser/data/retail_db/customers/part-00000).getLine.toList
+val customers = sc.parallelize(customersraw)
+
+val ordersraw = Source.fromFile("/home/hduser/data/retail_db/orders/part-00000).getLine.toList
+val orders = sc.parallelize(ordersraw)
+
+val ordersdf = orders.
+  map(order => order.split(",")(2).toInt).
+  toDd("order_customer_id")
+
+val customersdf = customers.
+  map(c. => (c.split(",")(0).toInt, c.split(",")(2), c.split(",")(1))).
+  toDF("customer_id", "customer_fname", "customer_lname")
+
+ordersdf.registerTempTable("orders")
+customersdf.registerTempTable("customers")
+
+sqlContext.setConf("spark.sql.shuffle.partitions", "1").....num of tread used bcos of s size of the data size
+
+sqlContext.
+  sql("select customer_lname, customer_fname " +
+      "from customers left outer join orders " +
+      "on customer_id = order_customer_id " +
+      "where order_customer_id is null " +
+      "order by customer_lname, customer_fname").
+  rdd.
+  map(rec => rec.mkString(",")).
+  saveAsTextFile("/user/hduser/inactive_customers")
+
+///
+spark-shell --master yarn \
+--num-executors 6 \
+--executor-cores 2 \
+--executor-memory 2G
+
+//Solution using core API
+val crimes = sc.textFile("/user/hduser/crime")
+val header = crimes.first
+val crimeswh = crimes.filter(criminalrecord => criminalrecord != header)
+
+"val t = {
+   val r = rec.split(",")
+   val d = r(2).split(" ")(0)
+   val m = d.split("/")(2) + d.split("/")(0)
+   ((m.toInt, r(5)), 1)
+
+val crimeswhdf = crimeswh.
+  map(rec => {
+    val r = rec.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1)
+    (r(7), r(5))
+  }).toDF("location_description", "crime_type")
+
+
+crimeswhdf.registerTempTable("crime_data")
+ sqlContext.sql("select * from (" +
+                "select crime_type, count(1) crime_count " +
+                "where location_description = 'RESIDENCE' " +
+                "group by crime_type " +
+                "order by crime_count desc) q " +
+                "limit 3").
+    saveAs("/user/hduser/resi_area_cri_type_data", "json")
+
+
+  ////nyse
+
+val nysc =sc.textFile("/user/data/retail_db/nyse) 
+
+
+///develop word count program
+spark-shell --master yarn \
+--num-executors 10 \
+--executor-cores 2 \
+--executor-memory 3 \
+--packages com,databricks:spark-avro_2.10:2.0.1
+
+**import com.databricks.spark.avro._
+
+
+
+
+
+val line = sc.textFile("/data/randomtextwrites")
+val words = lines.flapMap(line => line.split(" "))
+val tuples = words.map(word => (word, 1))
+val wordcount = tuples.reduceByKey((total, value) => total + value, 8)
+val wordcountdf = wordcount.toDF("word", "count")
+wordcountdf.write.avro("/user/hduser")
+
+///
+spark-shell --master yarn \
+--num-executors 6 \
+--executor-cores 2 \
+--executor-memory 2G
+
+//Solution using core API
+val crimes = sc.textFile("/user/hduser/crime")
+val header = crimes.first
+val crimeswh = crimes.filter(criminalrecord => criminalrecord != header)
+
+val crimeswhr = crimeswh.
+   map(rec => {
+     val r = rec.split(",")
+     val d = r(2).split(" ")(0)
+     val m = d.split("/")(2) + d.split("/")(0)
+     ((m.toInt, r(5)), 1)
+})
+val crimesmpwh = crimeswhr.
+   reduceByKey((total, value) => total + value)
+
+val crimeswhr = crimesmpwh.
+   map(rec => ((rec._._1, -rec._2), rec._1._1 + "\t" + rec._1._2))sortByKey().map(rec => rec._2)
+
+crimes.coalesce(1).saveAsTextFile("/user/hduser/crimes", classof[org.apache.hadoop.oi.compress.GzipCodec])
+
+
+ ///using SQL context
+val crimes = sc.textFile("/user/hduser/crime")
+val header = crimes.first
+val crimeswh = crimes.filter(crd=> crd!= header)
+val crimeswhdf = crimeswh.map(crd => (crd.split(",")(2), crd.split(",")(5))).toDF("crime_date", "crime_types")
+crimeswhdf.registerTempTable("crime")
+val crimesdf = sqlContext.
+   sql("select cast(concat(substr(crime_date, 7, 4), substr(crime_date, 0, 2)) as int) crime_month, " +
+   "count(1) crime_count_per_month_per_type, " +
+   "crime_types " +
+   "from crime " +
+   "group by cast(concat(substr(crime_date, 7, 4), substr(crime_date, 0, 2)) as int), crime_types " +
+   "order by crime_month, crime_count_per_month_per_type desc")
+
+ crimesdf.rdd.map(rec => rec.mkString("\t")).
+    saveAsTextFile("/user/hduser/crimes", classOf[org.apache.hadoop.io.compress.GzipCodec])
+    
