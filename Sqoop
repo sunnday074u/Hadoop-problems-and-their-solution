@@ -1,0 +1,223 @@
+sqoop list-databases \
+--connect jdbc:mysql://training.sunny.com:3306 \
+--username retail_dba \
+--password yerowo4u
+
+sqoop list-tables \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u
+
+sqoop eval \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--query "SELECT  * FROM orders LIMIT 10"
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--table order_items \
+--target-dir /user/sqoop_import 
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--table orders \
+--warehouse-dir /user/sqoop_import2 \
+--num-mappers 2
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--table order_items \
+--columns order_item_order_id,order_item_subtotal \
+--target-dir /user/sqoop_import6 \
+--num-mappers 1
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--table employees \
+--warehouse-dir /user/sqoop_import21 \
+--null-non-strings -1 \
+--fields-terminated-by "\t" \
+--lines-terminated-by ":"
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--target-dir /user/sqoop_import7 \
+--num-mappers 2 \
+--query "select * from orders where \$CONDITION and orders_date like '2014-01%'" \
+--split-by order_id \
+--append
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--target-dir /user/sqoop_import70 \
+--num-mappers 2 \
+--table orders \
+--where "order_date like '2014-02%'" \
+--append
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--table order_items \
+--hive-import \
+--hive-database sunny_sqoop_import \
+--hive-table order_items \
+--create-hive-table \
+--num-mappers 2
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--table orders \
+--hive-import \
+--hive-database sunny_sqoop_import \
+--hive-overwrite \
+--hive-table order_items \
+--num-mappers 2
+
+sqoop import \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--warehouse-dir /user/warehouse/sqoop_import6 \
+--query "select o.*, sum(oi.order_item_subtotal) order_revnue from orders o join order_items oi on o.order_id = oi.order_item_order_id and \$CONDITIONS group by o.order_id, o.order_date, o.order_customer_id, o.order_status" \
+--split-by order_id
+
+sqoop import-all-tables \
+--connect jdbc:mysql://training.sunny.com:3306/retail_db \
+--username retail_dba \
+--password yerowo4u \
+--warehouse-dir /user/hduser/sqoop_import21 \
+--autoreset-to-one-mapper
+
+sqoop export \
+--connect jdbc:mysql://training.sunny.com:3306/retail_export \
+--username retail_export \
+--password yerowo4u \
+--export-dir /user/hive/warehouse/order_items \
+--table sunny_answer1 \
+--input-fields-terminated-by "\001" \
+--numb-mappers 1
+
+sqoop export \
+--connect jdbc:mysql://training.sunny.com:3306/retail_export \
+--username retail_export \
+--password yerowo4u \
+--export-dir /user/hduser/sqoop_import21/order_items \
+--table sunny_answer1 \
+--update-key order_date \
+--update-mode allowinsert \
+--input-fields-terminated-by "\001" \
+--numb-mappers 1
+
+sqoop export \
+--connect jdbc:mysql://training.sunny.com:3306/retail_export \
+--username retail_export \
+--password yerowo4u \
+--export-dir /user/hive/warehouse/order_items \
+--table sunny_answer1 \
+--staging-table sunny_answer1 \
+--input-fields-terminated-by "\001" 
+
+create table sunny_answer1(
+order_item_order_id int (11),     
+order_item_product_id int (11),    
+order_item_quantity tinyint (4), 
+order_item_subtotal float,      
+order_item_product_price float
+);
+val orderitems = sc.textFile("/user/cloudera/data-master/retail_db/order_items")
+val orderitemspairRDD = orderitems.map(orderitem => {
+    (orderitem.split(",")(1).toInt, orderItem)
+})
+
+
+// SOLUTION TO PROBLEMS:
+
+val orders = sc.textFile("/user/cloudera/data-master/retail_db/order")
+val order_items = sc.textFile("/user/cloudera/data-master/retail_db/order_items")
+
+// TO UNDERSTAND THE DATA SETS:
+orders.first
+order_items.first
+oreders.take(10).foreach(println)
+order_items.take(10).foreach(println)
+
+//checking for complete and closed
+orders.map(order => order.split(",")(3).distinct.collect.foreach(println)
+
+//FILTER FOR COMPLETE OR CLOSE ORDERS
+val orderfiltered = orders.filter(order => order.split(",")(3) == "COMPLETE" || order.split(",")(3) == "CLOSED")
+
+//preview the data
+orderfilter.take(50).foreach(println)
+
+//Convert both filtered orders and order_items to key value pairs
+val ordersmap = ordersfiltered.map(order => (order.split(",")(0).toInt, order.split(",")(1)))
+val orderitemsmap = order_items.map(oi => (oi.split(",")(1).toInt, (oi.split(",")(2).toInt, oi.split(",")(4).toFloat)))
+
+//preview the result
+
+//Join the two data sets
+val ordersjoin = ordersmap.join(orderitemsmap)
+
+//preview ordersjoin
+ordersjoin.take(10).foreach(println)
+ordersjoin.count
+
+//Get daily revenue per product id
+val ordersjoinmap = ordersjoin.map(rec => ((rec._2._1, rec.2._2._1), rec1._2.2._2))
+
+//preview ordersjoinmap
+val dailyRevenueperproductid = ordersjoinmap.reduceByKey((revenue, order_item_subtotal) => revenue + order_item_subtotal)
+
+//preview the data set
+
+//getting product names, id and date
+val productsraw = Source.fromFile("/home/cloudera/Downloads/data-master/retail_db/products/part-00000").getLines.toList
+
+val products = sc.parallelize(productsraw)
+products.take(10).foreach(println)
+products.count
+
+//join daily revenue per product id with products to get daily revenue per product (by name)
+val productsmap = products.map(product => (product.split(",")(0).toInt, product.split(",")(2)))
+productsmap.take(10).foreach(println)
+productsmap.count
+
+//getting order:date, product_id, daily_revenue_per_product_id)...did not understand
+val dailyrevenueperproductidmap = dailyRevenueperproductid.map(rec => (rec._1._2, (rec._1._1, rec._2)))
+dailyrevenueperproductidmap.take(10).foreach(println)
+
+val dailyrevenueperproductjoin = dailyrevenueperproductidmap.join(productsmap)
+
+//sorting the data in ascending order
+
+val dailyrevenueperproductsorted = dailyrevenueperproductjoin.map(rec => ((rec._2.1._1, -rec._2._.1._2), (rec._2._1._2, rec._2._2))).sortByKey()
+
+//preview the data
+dailyrevenueperproductsorted.take.(100).foreach(println)
+
+//get data to desire format - order_date, daily_revenue_per_product, product_name
+val dailyrenueperproduct = dailyrevenueperproductsorted.map(rec => rec._2._1 + "," + rec._2._2 + "," + rec._2._3)
+dailyrevenueperproduct.take(10).foreach(println)
+
+//save final output into hdfs
+Textfile:
+dailyrevenueperproduct.saveAsTextFile("/user/cloudera/sunny1")
+
